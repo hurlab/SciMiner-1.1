@@ -1,5 +1,6 @@
 # Secrets and credentials
 annotation/SciMinerDB/annotationENV.ini
+annotation/SciMinerDB/annotationENV.ini.backup.*
 
 # Large data directories (symlinked or generated)
 annotation/SciMinerDB/CorpusData/

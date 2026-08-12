@@ -232,7 +232,7 @@ sub SciMiner_email_password_check
     #  ------------------------------------------------------------------------
     my $dbh         = DBI->connect($SciMinerDB, $username, $password, {PrintError => 0}) || 
                       return (-1, "!ERROR: Couldn't connect to database ".$DBI::errstr);
-    my $sql         = "SELECT passCode, activationStatus, suspended FROM user where email = \"$email\"";
+    my $sql         = "SELECT passCode, activationStatus, suspended, password_hash FROM user where email = \"$email\"";
     my $sth         = $dbh->prepare($sql);
     $sth->execute();
     my @row         = $sth->fetchrow_array;
@@ -246,8 +246,37 @@ sub SciMiner_email_password_check
 	{	return('INACTIVE');
 	}
 
-    if ((defined $passCode) && (defined $passCodeEntered) && ($passCode eq $passCodeEntered))
-    {   #  This is legitimnate user
+    #  ------------------------------------------------------------------------
+    #  Password verification.
+    #
+    #  Passwords were historically stored in CLEARTEXT in `passCode` and compared
+    #  with a plain string eq. They are now bcrypt-hashed into `password_hash`.
+    #  Prefer the hash; fall back to the cleartext column so that any account not
+    #  yet migrated (or a row added by an old code path) still authenticates.
+    #  The fallback is removed once `passCode` is cleared.
+    #  ------------------------------------------------------------------------
+    my $password_hash = $row[3];
+
+    #  Loaded lazily: if SciMiner::Security is unavailable for any reason we must
+    #  still fall through to the cleartext comparison rather than die and lock
+    #  every user out.
+    my $verifier = eval {
+        require SciMiner::Security;
+        \&SciMiner::Security::verify_password;
+    };
+
+    if ((defined $password_hash) && ($password_hash ne '') && (defined $passCodeEntered) && $verifier)
+    {   if ($verifier->($passCodeEntered, $password_hash))
+        {   #  This is a legitimate user (bcrypt)
+            return ('CORRECT');
+        }
+        #  A stored hash that does not match is authoritative ONLY when the
+        #  cleartext column has already been cleared; while both exist we still
+        #  try the cleartext below, so a bad hash cannot lock anyone out.
+    }
+
+    if ((defined $passCode) && ($passCode ne '') && (defined $passCodeEntered) && ($passCode eq $passCodeEntered))
+    {   #  This is legitimnate user (cleartext fallback, pending migration)
         return ('CORRECT');
     }else
     {   return ('INCORRECT');

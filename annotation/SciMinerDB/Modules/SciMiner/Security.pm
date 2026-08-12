@@ -11,8 +11,23 @@ sub hash_password {
     my ($password) = @_;
     die "Password required" unless defined $password;
 
-    # Generate a random salt
-    my $salt = join '', ('.', '/', 0..9, 'A'..'Z', 'a'..'z')[map { rand 64 } (1..22)];
+    # Generate a 16-byte random salt, encoded with bcrypt's base64 variant.
+    #
+    # Do NOT hand-roll this as "pick 22 random characters": a bcrypt salt encodes
+    # 128 bits in 22 base64 characters, so the final character carries only 2
+    # significant bits and just 4 of the 64 characters are legal there. Choosing
+    # it uniformly made bcrypt() die with "bad base64 encoding" ~94% of the time
+    # (measured: 2 successes in 50 calls). en_base64() always emits a valid salt.
+    my $raw = '';
+    if (open my $urandom, '<:raw', '/dev/urandom') {
+        read $urandom, $raw, 16;
+        close $urandom;
+    }
+    if (length($raw) != 16) {
+        # Fallback only if /dev/urandom is unavailable.
+        $raw = join '', map { chr int rand 256 } (1..16);
+    }
+    my $salt = en_base64($raw);
 
     # Cost factor (higher = more secure but slower)
     my $cost = 12;
