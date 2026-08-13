@@ -26,6 +26,7 @@ use Annotation::SciMiner;
 use CGI qw(:standard);
 use CGI::Debug;
 use SciMinerUI qw(print_topbar print_footer print_head_extras);
+use SciMiner::Security qw(hash_password);
 #use warnings;
 use strict;
 
@@ -398,8 +399,42 @@ sub save_user_info_into_database
     my $dbh         = DBI->connect($SciMinerDB, $username, $password, {PrintError => 0}) || 
                       return (-1, "!ERROR: Couldn't connect to database ".$DBI::errstr);
 
-	my $columns		= 'email, name, passCode, maxDoc, maxNewDoc, editLevel, institute, deptOrLab, instAddress, instCity, instState, instZipCode, instCountry, signUpDate, signUpTime';
-	
+	my $columns		= 'email, name, passCode, password_hash, maxDoc, maxNewDoc, editLevel, institute, deptOrLab, instAddress, instCity, instState, instZipCode, instCountry, signUpDate, signUpTime, activationCode';
+
+	#  ------------------------------------------------------------------------
+	#  Signup no longer stores the password in cleartext.
+	#
+	#  `passCode` is written EMPTY on purpose. SciMiner_email_password_check
+	#  guards its cleartext fallback with ($passCode ne ''), so an empty column
+	#  means this account authenticates against the bcrypt hash only -- there is
+	#  no cleartext path for any account created from here on.
+	#
+	#  Fail CLOSED: if hashing fails, abort the signup rather than silently
+	#  falling back to storing the password in the clear.
+	#  ------------------------------------------------------------------------
+	my $passwordHash	= eval { hash_password($userPassCode1) };
+	if ((! defined $passwordHash) || ($passwordHash eq ''))
+	{	print "!ERROR: Could not secure the password. The account was NOT created. Please contact $$annoENVRef{AdminEmail}.";
+		return(0);
+	}
+
+	#  ------------------------------------------------------------------------
+	#  2026-08-13: `activationCode` is declared NOT NULL with no DEFAULT, and
+	#  this INSERT never supplied it. Under STRICT_TRANS_TABLES (which this
+	#  server runs) MySQL rejects the whole statement with
+	#      Field 'activationCode' doesn't have a default value
+	#  so signup through SciMiner 1.1 has been failing for every user. Supply a
+	#  value. `activationStatus` (DEFAULT 1 = active) and `suspended`
+	#  (DEFAULT 0) are deliberately left to their schema defaults: 1.1 has no
+	#  activateAccount.cgi, and its success page tells the user the account is
+	#  ready to use, so an inactive account here would strand them.
+	#  ------------------------------------------------------------------------
+	my $tmpCode			= '';
+	my @chars			= ('a'..'z','A'..'Z','0'..'9','_');
+	foreach (1..50)
+	{	$tmpCode		.= $chars[rand @chars];
+	}
+
 	#  Remove any ' or "
 	$name				=~ s/\"|\'//g;
 	$instName			=~ s/\"|\'//g;
@@ -412,7 +447,7 @@ sub save_user_info_into_database
 	
 	
 	#  Try to insert content
-    $dbh->do("INSERT INTO `user` ($columns) VALUES (\"$email\", \"$name\", \"$userPassCode1\", $$annoENVRef{MaxDoc}, $$annoENVRef{MaxNewDoc}, 3, \"$instName\", \"$instDeptName\", \"$instAddress\", \"$instCity\", \"$instState\", \"$instZipCode\", \"$instCountry\", curdate(), curtime())");
+    $dbh->do("INSERT INTO `user` ($columns) VALUES (\"$email\", \"$name\", \"\", \"$passwordHash\", $$annoENVRef{MaxDoc}, $$annoENVRef{MaxNewDoc}, 3, \"$instName\", \"$instDeptName\", \"$instAddress\", \"$instCity\", \"$instState\", \"$instZipCode\", \"$instCountry\", curdate(), curtime(), \"$tmpCode\")");
     
     if ((defined $DBI::errstr) && ($DBI::errstr ne ""))
     {	$insertionStatus	= 0;

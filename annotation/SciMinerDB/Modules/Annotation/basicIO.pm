@@ -35,7 +35,21 @@ sub anno_environmental_file_open
     if (!@annoINIPath) {
         # Try to determine base directory
         my $base_dir = $ENV{SCIMINER_HOME} || '/home/hurlab/apache-tomcat-9.0.37/webapps/SciMiner1.1';
-        @annoINIPath = ( "$base_dir/annotation/SciMinerDB/",
+
+        #  2026-08-13: annotationENV.ini holds the MySQL username and password.
+        #  It used to live under webapps/SciMiner1.1/annotation/SciMinerDB/,
+        #  which Tomcat serves as STATIC FILES -- so the live credential was
+        #  downloadable at
+        #    /SciMiner1.1/annotation/SciMinerDB/annotationENV.ini
+        #  by anyone, with no authentication (verified 200 from off-host).
+        #  File permissions cannot fix this: Tomcat runs as the same user that
+        #  owns the file. The config therefore lives OUTSIDE the served tree
+        #  and that location is searched FIRST. This mirrors the SciMiner 2.0
+        #  fix, where .env was relocated to /etc/sciminer2/.
+        #  The in-webapps paths are kept as trailing fallbacks so that a tree
+        #  without the relocated file still starts.
+        @annoINIPath = ( "/home/hurlab/ANNOTATION-SciMiner1.1/SciMinerDB/",
+                         "$base_dir/annotation/SciMinerDB/",
                          "/home/hurlab/apache-tomcat-9.0.37/webapps/SciMiner1.1/annotation/SciMinerDB/",
                          "$base_dir/ANNOTATION/SciMinerDB/");
     }
